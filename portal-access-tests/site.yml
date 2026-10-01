@@ -1,0 +1,10 @@
+---
+# Portal access tests: each existing user logs in through Keycloak and every
+# dashboard link is checked against the expected-access matrix.
+# Read-only: no user, group or Keycloak setting is changed.
+- name: Portal access tests
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - portal_access_test

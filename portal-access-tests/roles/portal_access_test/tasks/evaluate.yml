@@ -1,0 +1,71 @@
+---
+# Expected access for an observation: pat_users[].access[<portal>] ('all' | 'none' | [links])
+
+- name: "Evaluate | Portal redirects to Keycloak and shows its login form"
+  ansible.builtin.set_fact:
+    pat_results: >-
+      {{ pat_results + [{
+           'id': 'PA-' ~ item.portal ~ '-' ~ item.user ~ '-KEYCLOAK',
+           'portal': item.portal, 'user': item.user, 'check': 'portal login goes through Keycloak',
+           'expected': 'redirect to ' ~ _pat_kc_host ~ ' login form',
+           'result': 'Pass' if (item.via_keycloak and item.form_found) else 'Fail',
+           'actual': ('login form found' if item.form_found else 'no Keycloak login form')
+                     ~ ('' if item.via_keycloak else '; did NOT redirect to Keycloak') ~ ' | ' ~ item.login_detail}] }}
+  loop: "{{ pat_observed }}"
+  loop_control:
+    label: "{{ item.portal }} / {{ item.user }}"
+
+- name: "Evaluate | Login allowed or refused as expected"
+  ansible.builtin.set_fact:
+    pat_results: >-
+      {{ pat_results + [{
+           'id': 'PA-' ~ item.portal ~ '-' ~ item.user ~ '-LOGIN',
+           'portal': item.portal, 'user': item.user, 'check': 'login to portal',
+           'expected': 'refused' if _access == 'none' else 'allowed',
+           'result': 'Pass' if (item.login_ok == (_access != 'none')) else 'Fail',
+           'actual': ('allowed' if item.login_ok else 'refused / failed') ~ ' | ' ~ item.login_detail}] }}
+  vars:
+    _access: "{{ (pat_users | selectattr('username', 'equalto', item.user) | first).access[item.portal] | default('none') }}"
+  loop: "{{ pat_observed }}"
+  loop_control:
+    label: "{{ item.portal }} / {{ item.user }}"
+
+- name: "Evaluate | Expand (observation x portal link) for users with portal access"
+  ansible.builtin.set_fact:
+    _pat_link_checks: >-
+      {{ _pat_link_checks | default([]) +
+         (pat_portals[item.portal].links | map('combine', {'_portal': item.portal, '_user': item.user}) | list) }}
+  vars:
+    _access: "{{ (pat_users | selectattr('username', 'equalto', item.user) | first).access[item.portal] | default('none') }}"
+  loop: "{{ pat_observed }}"
+  loop_control:
+    label: "{{ item.portal }} / {{ item.user }}"
+  when: _access != 'none'
+
+- name: "Evaluate | Each link opens only if the matrix allows it"
+  ansible.builtin.set_fact:
+    pat_results: >-
+      {{ pat_results + [{
+           'id': 'PA-' ~ item._portal ~ '-' ~ item._user ~ '-' ~ item.name,
+           'portal': item._portal, 'user': item._user, 'check': 'link ' ~ item.name,
+           'expected': 'opens' if (_allowed | bool) else 'refused',
+           'result': 'Fail' if not _obs.login_ok else
+                     ('Pass' if ((_accessible | bool) == (_allowed | bool) and not (_vis_mismatch | bool)) else 'Fail'),
+           'actual': 'not tested: login failed' if not _obs.login_ok else
+                     (('opens' if (_accessible | bool) else 'refused') ~ ' (HTTP ' ~ (_l.code | default(0)) ~ ' at '
+                      ~ (_l.final_url | default('-') or '-') ~ ')'
+                      ~ ('; shown on dashboard' if _l.visible | default(none) == true else
+                         '; not shown on dashboard' if _l.visible | default(none) == false else '')
+                      ~ ('; VISIBILITY MISMATCH' if (_vis_mismatch | bool) else ''))}] }}
+  vars:
+    _obs: "{{ pat_observed | selectattr('portal', 'equalto', item._portal) | selectattr('user', 'equalto', item._user) | first }}"
+    _access: "{{ (pat_users | selectattr('username', 'equalto', item._user) | first).access[item._portal] }}"
+    _allowed: "{{ _access == 'all' or (_access is not string and item.name in _access) }}"
+    _l: "{{ _obs.links | selectattr('name', 'equalto', item.name) | first | default({}) }}"
+    _accessible: >-
+      {{ (_l.code | default(0) | int) >= 200 and (_l.code | default(0) | int) < 300
+         and ((_l.final_url | default('') or 'x://none') | urlsplit('hostname')) != _pat_kc_host }}
+    _vis_mismatch: "{{ pat_check_visibility and (_l.visible | default(none)) is not none and (_l.visible | bool) != (_allowed | bool) }}"
+  loop: "{{ _pat_link_checks | default([]) }}"
+  loop_control:
+    label: "{{ item._portal }} / {{ item._user }} / {{ item.name }}"

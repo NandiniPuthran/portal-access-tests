@@ -1,0 +1,16 @@
+---
+_pat_kc_host: "{{ pat_keycloak_url | urlsplit('hostname') }}"
+
+# curl behaving like a browser: follow redirects, keep cookies per domain in a jar.
+# Needs _wd (tempfile result) in scope.
+_pat_curl: >-
+  {{ ['curl', '-sS', '-L', '--max-redirs', '15', '-m', pat_timeout | string,
+      '-c', _wd.path ~ '/jar', '-b', _wd.path ~ '/jar',
+      '-w', '%{http_code} %{url_effective}']
+     + (['--cacert', pat_ca_path] if pat_ca_path else []) }}
+
+# (user, portal) pairs per client OS: [user_dict, {key: portal_name, value: portal_dict}]
+_pat_pairs_linux: >-
+  {{ pat_users | product(pat_portals | dict2items | selectattr('value.client_os', 'equalto', 'linux') | list) | list }}
+_pat_pairs_windows: >-
+  {{ pat_users | product(pat_portals | dict2items | selectattr('value.client_os', 'equalto', 'windows') | list) | list }}

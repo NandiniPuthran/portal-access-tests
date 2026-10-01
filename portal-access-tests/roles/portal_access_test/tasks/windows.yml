@@ -1,0 +1,50 @@
+---
+# Same checks as linux_user.yml, run on the Windows client with PowerShell.
+# Invoke-WebRequest with a WebRequestSession keeps cookies per domain across redirects,
+# like a browser. Needs the internal CA in the Windows trusted root store.
+- name: "Windows clients | Log in through Keycloak and open every link"
+  ansible.windows.win_powershell:
+    script: "{{ lookup('ansible.builtin.file', 'Test-PortalAccess.ps1') }}"
+    parameters:
+      PortalUrl: "{{ _portal.url }}"
+      KeycloakHost: "{{ _pat_kc_host }}"
+      Username: "{{ _user.username }}"
+      Password: "{{ _user.password }}"
+      Links: "{{ _portal.links }}"
+      TimeoutSec: "{{ pat_timeout | int }}"
+      CheckVisibility: "{{ pat_check_visibility | bool }}"
+  delegate_to: "{{ _portal.test_from }}"
+  loop: "{{ _pat_pairs_windows }}"
+  loop_control:
+    loop_var: _pair
+    label: "{{ _pair[1].key }} / {{ _pair[0].username }}"
+  vars:
+    _user: "{{ _pair[0] }}"
+    _portal: "{{ _pair[1].value | combine({'name': _pair[1].key}) }}"
+  register: _win
+  failed_when: false
+  no_log: "{{ pat_no_log }}"
+
+- name: "Windows clients | Script errors"
+  ansible.builtin.debug:
+    msg: "{{ item._pair[1].key }} / {{ item._pair[0].username }}: {{ item.error | default([]) | map(attribute='message', default='') | join('; ') or item.msg | default('') }}"
+  loop: "{{ _win.results | default([]) | selectattr('failed', 'defined') | selectattr('failed') | list }}"
+  loop_control:
+    label: "{{ item._pair[1].key }} / {{ item._pair[0].username }}"
+
+- name: "Windows clients | Store observations"
+  ansible.builtin.set_fact:
+    pat_observed: >-
+      {{ pat_observed + [{
+           'portal': item._pair[1].key,
+           'user': item._pair[0].username,
+           'client': item._pair[1].value.test_from,
+           'open_code': item.result.open_code | default(0) | int,
+           'via_keycloak': item.result.via_keycloak | default(false) | bool,
+           'form_found': item.result.form_found | default(false) | bool,
+           'login_ok': item.result.login_ok | default(false) | bool,
+           'login_detail': item.result.login_detail | default('script failed: ' ~ (item.msg | default('unknown'))),
+           'links': item.result.links | default([])}] }}
+  loop: "{{ _win.results | default([]) }}"
+  loop_control:
+    label: "{{ item._pair[1].key }} / {{ item._pair[0].username }}"

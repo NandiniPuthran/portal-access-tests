@@ -1,0 +1,47 @@
+---
+# ---------------------------------------------------------------------------
+# Replace every EXAMPLE value.
+# ---------------------------------------------------------------------------
+pat_keycloak_url: "https://sso.example.internal"          # EXAMPLE — used to recognise the Keycloak host
+
+pat_portals:
+  admin:
+    url: "https://admin-portal.example.internal/"         # EXAMPLE
+    test_from: server1.example.internal                   # inventory host the portal is used from
+    client_os: linux
+    # Optional network check: hosts that must NOT be able to reach this portal at all
+    must_not_be_reachable_from: []
+    #  - { host: winserver1.example.internal, client_os: windows }
+    links:                                                # every link shown on the dashboard
+      - { name: Grafana,  url: "https://grafana.example.internal/" }
+      - { name: Jenkins,  url: "https://jenkins.example.internal/" }
+      - { name: Kibana,   url: "https://kibana.example.internal/" }
+      - { name: Server-A, url: "https://server-a.example.internal/" }
+      # optional per link: visible_match: "text that appears in the portal HTML for this link"
+
+  user:
+    url: "https://user-portal.example.internal/"          # EXAMPLE
+    test_from: winserver1.example.internal
+    client_os: windows
+    must_not_be_reachable_from: []
+    links:
+      - { name: Grafana,  url: "https://grafana.example.internal/" }
+      - { name: Kibana,   url: "https://kibana.example.internal/" }
+      - { name: Server-B, url: "https://server-b.example.internal/" }
+
+# Expected access per user and portal:
+#   all          -> must log in and open every link
+#   [a, b]       -> must log in; only these links open, all others must be refused
+#   none         -> login to that portal must be refused
+# A portal not listed for a user counts as 'none'.
+pat_users:
+  - username: user1                                       # EXAMPLE
+    password: "{{ vault_pat_pw_user1 }}"
+    access:
+      admin: all
+      user: all
+  - username: user2                                       # EXAMPLE
+    password: "{{ vault_pat_pw_user2 }}"
+    access:
+      admin: none
+      user: [Grafana, Kibana]

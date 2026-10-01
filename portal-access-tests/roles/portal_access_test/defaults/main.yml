@@ -1,0 +1,7 @@
+---
+pat_ca_path: /etc/ipa/ca.crt        # CA bundle on the Linux client; "" to use the system store
+pat_timeout: 20                     # seconds per HTTP request
+pat_check_visibility: true          # also check that allowed links appear (and others do not) in the portal page
+pat_results_dir: "{{ playbook_dir }}/results"
+pat_fail_on_findings: true
+pat_no_log: true                    # hides passwords; set false only for debugging

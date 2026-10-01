@@ -1,0 +1,42 @@
+---
+- name: Preflight | Keycloak URL, portals and users are configured
+  ansible.builtin.assert:
+    that:
+      - pat_keycloak_url is match('^https://')
+      - pat_portals | length > 0
+      - pat_users | length > 0
+    quiet: true
+
+- name: Preflight | Each portal has url, client host, client OS and links
+  ansible.builtin.assert:
+    that:
+      - item.value.url is match('^https?://')
+      - item.value.test_from in groups['all']
+      - item.value.client_os in ['linux', 'windows']
+      - item.value.links | length > 0
+    fail_msg: "Portal '{{ item.key }}' is incomplete, or its test_from host is not in the inventory."
+    quiet: true
+  loop: "{{ pat_portals | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Preflight | Flatten the expected-access matrix
+  ansible.builtin.set_fact:
+    _pat_matrix: "{{ _pat_matrix | default([]) + (item.access | dict2items | map('combine', {'user': item.username}) | list) }}"
+  loop: "{{ pat_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+# Catches typos: a misspelled link name would otherwise silently count as "not allowed"
+- name: Preflight | Portals and link names in the matrix exist
+  ansible.builtin.assert:
+    that:
+      - item.key in pat_portals
+      - >-
+        item.value in ['all', 'none'] or
+        (item.value | difference(pat_portals[item.key].links | map(attribute='name') | list) | length == 0)
+    fail_msg: "User '{{ item.user }}', portal '{{ item.key }}': unknown portal or link name in the access matrix."
+    quiet: true
+  loop: "{{ _pat_matrix }}"
+  loop_control:
+    label: "{{ item.user }} / {{ item.key }}"

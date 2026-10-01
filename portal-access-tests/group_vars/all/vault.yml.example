@@ -1,0 +1,4 @@
+---
+# cp vault.yml.example vault.yml && ansible-vault encrypt vault.yml
+vault_pat_pw_user1: "CHANGE_ME"
+vault_pat_pw_user2: "CHANGE_ME"

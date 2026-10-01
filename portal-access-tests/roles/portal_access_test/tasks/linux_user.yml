@@ -1,0 +1,124 @@
+---
+# One user against one portal from a Linux client, using curl with a cookie jar.
+# curl follows redirects and keeps cookies per domain, so the Keycloak login
+# round-trip behaves like a browser. Only GETs plus one login POST — nothing is changed.
+
+- name: "{{ _portal.name }} / {{ _user.username }} | Temporary workdir on {{ _portal.test_from }}"
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: .portaltest
+  delegate_to: "{{ _portal.test_from }}"
+  register: _wd
+
+- name: "{{ _portal.name }} / {{ _user.username }} | Checks"
+  block:
+    - name: "{{ _portal.name }} / {{ _user.username }} | Open portal (expect Keycloak login page)"
+      ansible.builtin.command:
+        argv: "{{ _pat_curl + ['-o', _wd.path ~ '/login.html', _portal.url] }}"
+      delegate_to: "{{ _portal.test_from }}"
+      register: _open
+      changed_when: false
+      failed_when: false
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Read login page"
+      ansible.builtin.slurp:
+        src: "{{ _wd.path }}/login.html"
+      delegate_to: "{{ _portal.test_from }}"
+      register: _login_html
+      failed_when: false
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Parse redirect and login form"
+      ansible.builtin.set_fact:
+        _o_code: "{{ (_open.stdout | default('000 ')).split(' ')[0] | int }}"
+        _o_url: "{{ ((_open.stdout | default('000 ')).split(' ', 1) + [''])[1] }}"
+        _form_action: >-
+          {{ (((_html | regex_search('<form[^>]*id="kc-form-login"[^>]*>')) or '')
+               | regex_search('action="([^"]+)"', '\\1') or [''])[0] | replace('&amp;', '&') }}
+      vars:
+        _html: "{{ (_login_html.content | default('')) | b64decode }}"
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Submit credentials to Keycloak"
+      ansible.builtin.command:
+        argv: >-
+          {{ _pat_curl + ['-o', _wd.path ~ '/landing.html',
+                          '--data-urlencode', 'username=' ~ _user.username,
+                          '--data-urlencode', 'password@-',
+                          '--data', 'credentialId=',
+                          _form_action] }}
+        stdin: "{{ _user.password }}"
+        stdin_add_newline: false
+      delegate_to: "{{ _portal.test_from }}"
+      register: _post
+      changed_when: false
+      failed_when: false
+      when: _form_action | length > 0
+      no_log: "{{ pat_no_log }}"
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Read landing page"
+      ansible.builtin.slurp:
+        src: "{{ _wd.path }}/landing.html"
+      delegate_to: "{{ _portal.test_from }}"
+      register: _landing_html
+      failed_when: false
+      when: _post is not skipped
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Evaluate login"
+      ansible.builtin.set_fact:
+        _p_code: "{{ _p_out.split(' ')[0] | int }}"
+        _p_url: "{{ (_p_out.split(' ', 1) + [''])[1] }}"
+        _login_ok: >-
+          {{ _post is not skipped and (_p_out.split(' ')[0] | int) >= 200 and (_p_out.split(' ')[0] | int) < 300
+             and ((_p_out.split(' ', 1) + [''])[1] | urlsplit('hostname')) != _pat_kc_host }}
+        _landing: "{{ ((_landing_html.content | default('')) | b64decode) if _landing_html is not skipped else '' }}"
+      vars:
+        _p_out: "{{ (_post.stdout | default('000 ')) if _post is not skipped else '000 ' }}"
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Open every dashboard link with the session"
+      ansible.builtin.command:
+        argv: "{{ _pat_curl + ['-o', '/dev/null', item.url] }}"
+      delegate_to: "{{ _portal.test_from }}"
+      loop: "{{ _portal.links }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: _link_res
+      changed_when: false
+      failed_when: false
+      when: _login_ok | bool
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Reset link list"
+      ansible.builtin.set_fact:
+        _links_norm: []
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Normalise link results"
+      ansible.builtin.set_fact:
+        _links_norm: >-
+          {{ _links_norm + [{
+               'name': item.item.name,
+               'code': ((item.stdout | default('000 ')) ~ ' ').split(' ', 1)[0] | int,
+               'final_url': (((item.stdout | default('000 ')) ~ ' ').split(' ', 1)[1]) | trim,
+               'visible': ((item.item.visible_match | default(item.item.url)) in _landing) if pat_check_visibility else none}] }}
+      loop: "{{ _link_res.results | default([]) | rejectattr('skipped', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: "{{ _portal.name }} / {{ _user.username }} | Store observations"
+      ansible.builtin.set_fact:
+        pat_observed: >-
+          {{ pat_observed + [{
+               'portal': _portal.name,
+               'user': _user.username,
+               'client': _portal.test_from,
+               'open_code': _o_code | int,
+               'via_keycloak': ((_o_url | urlsplit('hostname')) == _pat_kc_host) if _o_url else false,
+               'form_found': _form_action | length > 0,
+               'login_ok': _login_ok | bool,
+               'login_detail': 'portal -> HTTP ' ~ _o_code ~ ' at ' ~ (_o_url or 'no response')
+                               ~ '; after login -> HTTP ' ~ (_p_code | default('-')) ~ ' at ' ~ (_p_url | default('-')),
+               'links': _links_norm}] }}
+
+  always:
+    - name: "{{ _portal.name }} / {{ _user.username }} | Remove workdir (contains session cookies)"
+      ansible.builtin.file:
+        path: "{{ _wd.path }}"
+        state: absent
+      delegate_to: "{{ _portal.test_from }}"

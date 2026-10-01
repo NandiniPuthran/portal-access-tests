@@ -1,0 +1,4 @@
+ID,Portal,User,Check,Expected,Result,Actual,Run
+{% for r in pat_results %}
+"{{ r.id }}","{{ r.portal }}","{{ r.user }}","{{ r.check | replace('"', '""') }}","{{ r.expected }}","{{ r.result }}","{{ r.actual | replace('"', '""') }}","{{ pat_run_ts }}"
+{% endfor %}

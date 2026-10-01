@@ -1,0 +1,26 @@
+---
+- name: Report | Results directory
+  ansible.builtin.file:
+    path: "{{ pat_results_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: Report | Write CSV
+  ansible.builtin.template:
+    src: portal_access_results.csv.j2
+    dest: "{{ pat_results_dir }}/portal_access_{{ pat_run_ts }}.csv"
+    mode: "0640"
+
+- name: Report | Summary
+  ansible.builtin.debug:
+    msg:
+      - "Results: {{ pat_results_dir }}/portal_access_{{ pat_run_ts }}.csv"
+      - "Pass={{ pat_results | selectattr('result', 'equalto', 'Pass') | list | length }}  Fail={{ pat_results | selectattr('result', 'equalto', 'Fail') | list | length }}"
+      - "Failed: {{ pat_results | selectattr('result', 'equalto', 'Fail') | map(attribute='id') | join(', ') or 'none' }}"
+
+- name: Report | Fail the run if any check failed
+  ansible.builtin.assert:
+    that: pat_results | selectattr('result', 'equalto', 'Fail') | list | length == 0
+    fail_msg: "Access findings present — see the results CSV."
+    quiet: true
+  when: pat_fail_on_findings | bool

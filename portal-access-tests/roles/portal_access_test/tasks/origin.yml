@@ -1,0 +1,57 @@
+---
+# Optional: a portal must not be reachable at all from the listed hosts
+# (e.g. Admin portal from the Windows server). Pass = no HTTP response, or 403.
+- name: "Origin | Build list of (portal, host) pairs"
+  ansible.builtin.set_fact:
+    _pat_origin_pairs: >-
+      {{ _pat_origin_pairs | default([]) +
+         (item.value.must_not_be_reachable_from | default([]) | map('combine', {'portal': item.key, 'url': item.value.url}) | list) }}
+  loop: "{{ pat_portals | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: "Origin | Probe from Linux hosts"
+  ansible.builtin.command:
+    argv: "{{ ['curl', '-sS', '-o', '/dev/null', '-m', pat_timeout | string, '-w', '%{http_code}']
+              + (['--cacert', pat_ca_path] if pat_ca_path else []) + [item.url] }}"
+  delegate_to: "{{ item.host }}"
+  loop: "{{ _pat_origin_pairs | selectattr('client_os', 'equalto', 'linux') | list }}"
+  loop_control:
+    label: "{{ item.portal }} from {{ item.host }}"
+  register: _orig_lin
+  changed_when: false
+  failed_when: false
+
+- name: "Origin | Probe from Windows hosts"
+  ansible.windows.win_powershell:
+    script: |
+      param([string] $Url, [int] $TimeoutSec)
+      $Ansible.Changed = $false
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      try { $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -MaximumRedirection 0 -TimeoutSec $TimeoutSec -ErrorAction Stop; $Ansible.Result = [int]$r.StatusCode }
+      catch { $Ansible.Result = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 } }
+    parameters:
+      Url: "{{ item.url }}"
+      TimeoutSec: "{{ pat_timeout | int }}"
+  delegate_to: "{{ item.host }}"
+  loop: "{{ _pat_origin_pairs | selectattr('client_os', 'equalto', 'windows') | list }}"
+  loop_control:
+    label: "{{ item.portal }} from {{ item.host }}"
+  register: _orig_win
+  failed_when: false
+
+- name: "Origin | Record"
+  ansible.builtin.set_fact:
+    pat_results: >-
+      {{ pat_results + [{
+           'id': 'PA-' ~ item.item.portal ~ '-ORIGIN-' ~ item.item.host,
+           'portal': item.item.portal, 'user': '-', 'check': 'not reachable from ' ~ item.item.host,
+           'expected': 'no response or 403',
+           'result': 'Pass' if (_code | int) in [0, 403] else 'Fail',
+           'actual': 'HTTP ' ~ _code ~ (' (no response)' if (_code | int) == 0 else '')}] }}
+  vars:
+    _code: "{{ (item.result if item.result is defined else (item.stdout | default('0'))) | int }}"
+  loop: "{{ (_orig_lin.results | default([])) + (_orig_win.results | default([])) }}"
+  loop_control:
+    label: "{{ item.item.portal }} from {{ item.item.host }}"
+  when: item is not skipped

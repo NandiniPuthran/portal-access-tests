@@ -1,0 +1,41 @@
+---
+- name: Init | Result containers
+  ansible.builtin.set_fact:
+    pat_observed: []
+    pat_results: []
+    pat_run_ts: "{{ now(utc=true, fmt='%Y%m%dT%H%M%SZ') }}"
+  tags: [always]
+
+- name: Run test phases (report is written even if a phase errors out)
+  block:
+    - name: Preflight
+      ansible.builtin.import_tasks: preflight.yml
+      tags: [always]
+
+    - name: "Portals used from Linux clients"
+      ansible.builtin.include_tasks: linux_user.yml
+      loop: "{{ _pat_pairs_linux }}"
+      loop_control:
+        loop_var: _pair
+        label: "{{ _pair[1].key }} / {{ _pair[0].username }}"
+      vars:
+        _user: "{{ _pair[0] }}"
+        _portal: "{{ _pair[1].value | combine({'name': _pair[1].key}) }}"
+      tags: [linux, access]
+
+    - name: "Portals used from Windows clients"
+      ansible.builtin.import_tasks: windows.yml
+      tags: [windows, access]
+
+    - name: "Portal must not be reachable from other hosts"
+      ansible.builtin.import_tasks: origin.yml
+      tags: [origin]
+
+    - name: Compare observations with the expected-access matrix
+      ansible.builtin.import_tasks: evaluate.yml
+      tags: [always]
+
+  always:
+    - name: Write report
+      ansible.builtin.import_tasks: report.yml
+      tags: [always]
