@@ -1,0 +1,30 @@
+---
+# Derived values — not meant to be overridden.
+fb_receiver_tls_dir: "{{ fb_receiver_conf_dir }}/tls"
+fb_receiver_unit_path: "/etc/systemd/system/{{ fb_receiver_service_name }}.service"
+fb_receiver_tmpfiles_path: "/etc/tmpfiles.d/{{ fb_receiver_service_name }}.conf"
+fb_receiver_mtls: "{{ (fb_receiver_tls_enabled | bool) and (fb_receiver_tls_client_ca_src | length > 0) }}"
+fb_receiver_scheme: "{{ 'https' if (fb_receiver_tls_enabled | bool) else 'http' }}"
+fb_receiver_verify_host: "{{ '127.0.0.1' if fb_receiver_bind_address in ['0.0.0.0', ''] else fb_receiver_bind_address }}"
+
+# Paths the role must never treat as its own (create-then-delete).
+fb_receiver_protected_paths:
+  - /
+  - /bin
+  - /boot
+  - /dev
+  - /etc
+  - /home
+  - /lib
+  - /opt
+  - /proc
+  - /root
+  - /sbin
+  - /srv
+  - /sys
+  - /tmp
+  - /usr
+  - /usr/local
+  - /var
+  - /var/lib
+  - /var/log

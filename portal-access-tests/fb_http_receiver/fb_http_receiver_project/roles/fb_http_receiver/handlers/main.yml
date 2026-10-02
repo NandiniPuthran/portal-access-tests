@@ -1,0 +1,6 @@
+---
+- name: Restart fb-receiver
+  ansible.builtin.systemd:
+    name: "{{ fb_receiver_service_name }}"
+    state: restarted
+    daemon_reload: true

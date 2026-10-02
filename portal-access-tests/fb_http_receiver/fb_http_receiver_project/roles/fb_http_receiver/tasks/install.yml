@@ -1,0 +1,94 @@
+---
+- name: Install | Python 3 package
+  ansible.builtin.apt:
+    name: python3
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: fb_receiver_manage_python | bool
+
+- name: Install | Check interpreter exists
+  ansible.builtin.stat:
+    path: "{{ fb_receiver_python }}"
+  register: fb_receiver_python_stat
+
+- name: Install | Assert interpreter is present
+  ansible.builtin.assert:
+    that: fb_receiver_python_stat.stat.exists
+    fail_msg: "{{ fb_receiver_python }} not found. Install python3 or set fb_receiver_python."
+    quiet: true
+  when: not ansible_check_mode
+
+- name: Install | Service group
+  ansible.builtin.group:
+    name: "{{ fb_receiver_group }}"
+    system: true
+    state: present
+  when: fb_receiver_manage_user | bool
+
+- name: Install | Service user (no login, no home)
+  ansible.builtin.user:
+    name: "{{ fb_receiver_user }}"
+    group: "{{ fb_receiver_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ fb_receiver_install_dir }}"
+    create_home: false
+    state: present
+  when: fb_receiver_manage_user | bool
+
+- name: Install | Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ fb_receiver_install_dir }}", owner: root, group: root, mode: "0755" }
+    - { path: "{{ fb_receiver_conf_dir }}", owner: root, group: "{{ fb_receiver_group }}", mode: "0750" }
+    - { path: "{{ fb_receiver_log_dir }}", owner: "{{ fb_receiver_user }}", group: "{{ fb_receiver_group }}", mode: "0750" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Install | Receiver script (syntax-checked before replacing)
+  ansible.builtin.copy:
+    src: receiver.py
+    dest: "{{ fb_receiver_install_dir }}/receiver.py"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "{{ fb_receiver_python }} -m py_compile %s"
+  notify: Restart fb-receiver
+
+- name: Install | Environment file
+  ansible.builtin.template:
+    src: receiver.env.j2
+    dest: "{{ fb_receiver_conf_dir }}/receiver.env"
+    owner: root
+    group: "{{ fb_receiver_group }}"
+    mode: "0640"
+  notify: Restart fb-receiver
+
+- name: Install | Log retention (systemd-tmpfiles)
+  ansible.builtin.template:
+    src: tmpfiles.conf.j2
+    dest: "{{ fb_receiver_tmpfiles_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: fb_receiver_log_retention_days | int > 0
+
+- name: Install | Remove log retention rule when disabled
+  ansible.builtin.file:
+    path: "{{ fb_receiver_tmpfiles_path }}"
+    state: absent
+  when: fb_receiver_log_retention_days | int <= 0
+
+- name: Install | Standalone uninstall script (for use without Ansible)
+  ansible.builtin.template:
+    src: uninstall.sh.j2
+    dest: "{{ fb_receiver_uninstall_script }}"
+    owner: root
+    group: root
+    mode: "0750"

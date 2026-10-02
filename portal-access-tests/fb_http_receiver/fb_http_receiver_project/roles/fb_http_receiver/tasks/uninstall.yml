@@ -1,0 +1,61 @@
+---
+- name: Uninstall | Collect service state
+  ansible.builtin.service_facts:
+
+- name: Uninstall | Stop and disable service
+  ansible.builtin.systemd:
+    name: "{{ fb_receiver_service_name }}"
+    state: stopped
+    enabled: false
+  when: (fb_receiver_service_name ~ '.service') in ansible_facts.services
+
+- name: Uninstall | Remove systemd unit
+  ansible.builtin.file:
+    path: "{{ fb_receiver_unit_path }}"
+    state: absent
+  register: fb_receiver_unit_removed
+
+- name: Uninstall | Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: fb_receiver_unit_removed is changed
+
+- name: Uninstall | Clear any failed state for the unit
+  ansible.builtin.command: systemctl reset-failed {{ fb_receiver_service_name }}.service
+  changed_when: false
+  failed_when: false
+  when: fb_receiver_unit_removed is changed
+
+- name: Uninstall | Remove installed files and config (incl. TLS copies)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ fb_receiver_install_dir }}"
+    - "{{ fb_receiver_conf_dir }}"
+    - "{{ fb_receiver_tmpfiles_path }}"
+    - "{{ fb_receiver_uninstall_script }}"
+
+- name: Uninstall | Remove received logs
+  ansible.builtin.file:
+    path: "{{ fb_receiver_log_dir }}"
+    state: absent
+  when: fb_receiver_purge_logs | bool
+
+- name: Uninstall | Logs retained
+  ansible.builtin.debug:
+    msg: "Kept {{ fb_receiver_log_dir }}. Re-run with -e fb_receiver_purge_logs=true to delete it."
+  when: not (fb_receiver_purge_logs | bool)
+
+- name: Uninstall | Remove service user
+  ansible.builtin.user:
+    name: "{{ fb_receiver_user }}"
+    state: absent
+    remove: false
+  when: fb_receiver_manage_user | bool
+
+- name: Uninstall | Remove service group
+  ansible.builtin.group:
+    name: "{{ fb_receiver_group }}"
+    state: absent
+  when: fb_receiver_manage_user | bool

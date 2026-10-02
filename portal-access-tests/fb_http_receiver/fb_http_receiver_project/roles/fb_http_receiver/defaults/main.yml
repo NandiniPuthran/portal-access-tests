@@ -1,0 +1,41 @@
+---
+# present = install/update, absent = full removal
+fb_receiver_state: present
+
+# ---- Service ----
+fb_receiver_service_name: fb-receiver
+fb_receiver_bind_address: "0.0.0.0"
+fb_receiver_port: 8888
+fb_receiver_uri_paths:            # POSTs to any other path get a 404
+  - /logs
+fb_receiver_python: /usr/bin/python3
+fb_receiver_manage_python: true   # apt install python3; set false if the host has no repo access
+
+# ---- Paths ----
+fb_receiver_install_dir: /opt/fb-receiver
+fb_receiver_conf_dir: /etc/fb-receiver
+fb_receiver_log_dir: /var/log/fb-receiver
+fb_receiver_uninstall_script: /usr/local/sbin/fb-receiver-uninstall
+
+# ---- Runtime user ----
+fb_receiver_user: fb-receiver
+fb_receiver_group: fb-receiver
+fb_receiver_manage_user: true     # create on install, remove on uninstall
+
+# ---- Log retention via systemd-tmpfiles (0 = never clean up) ----
+fb_receiver_log_retention_days: 7
+
+# ---- TLS (optional) ----
+fb_receiver_tls_enabled: false
+fb_receiver_tls_remote_src: false # true = *_src paths are on the target host, not the controller
+fb_receiver_tls_cert_src: ""      # server cert, ideally with intermediates appended
+fb_receiver_tls_key_src: ""
+fb_receiver_tls_client_ca_src: "" # non-empty = enable mTLS (client certs required)
+
+# ---- Post-deploy verification ----
+fb_receiver_verify: true
+fb_receiver_verify_client_cert: "" # mTLS only: client cert/key paths on the target host
+fb_receiver_verify_client_key: ""
+
+# ---- Uninstall ----
+fb_receiver_purge_logs: false      # keep received logs unless explicitly asked

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Removes the {{ fb_receiver_service_name }} test receiver. Same steps as the role's
+# fb_receiver_state=absent path, for when running Ansible isn't convenient.
+# Usage: {{ fb_receiver_uninstall_script }} [--purge-logs]
+set -euo pipefail
+
+PURGE_LOGS=no
+case "${1:-}" in
+  --purge-logs) PURGE_LOGS=yes ;;
+  "") ;;
+  *) echo "usage: $0 [--purge-logs]" >&2; exit 2 ;;
+esac
+
+if [[ $EUID -ne 0 ]]; then
+  echo "must run as root" >&2
+  exit 1
+fi
+
+SERVICE="{{ fb_receiver_service_name }}.service"
+
+if systemctl cat "$SERVICE" >/dev/null 2>&1; then
+  systemctl disable --now "$SERVICE" || true
+fi
+rm -f -- "{{ fb_receiver_unit_path }}"
+systemctl daemon-reload
+systemctl reset-failed "$SERVICE" 2>/dev/null || true
+
+rm -rf -- "{{ fb_receiver_install_dir }}" "{{ fb_receiver_conf_dir }}"
+rm -f -- "{{ fb_receiver_tmpfiles_path }}"
+
+if [[ "$PURGE_LOGS" == yes ]]; then
+  rm -rf -- "{{ fb_receiver_log_dir }}"
+  echo "Removed {{ fb_receiver_log_dir }}"
+else
+  echo "Kept received logs in {{ fb_receiver_log_dir }} (use --purge-logs to delete)"
+fi
+{% if fb_receiver_manage_user | bool %}
+
+if getent passwd "{{ fb_receiver_user }}" >/dev/null; then
+  userdel "{{ fb_receiver_user }}"
+fi
+if getent group "{{ fb_receiver_group }}" >/dev/null; then
+  groupdel "{{ fb_receiver_group }}"
+fi
+{% endif %}
+
+rm -f -- "{{ fb_receiver_uninstall_script }}"
+echo "{{ fb_receiver_service_name }} removed."

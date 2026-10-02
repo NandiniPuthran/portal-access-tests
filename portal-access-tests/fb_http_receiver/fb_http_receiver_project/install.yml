@@ -1,0 +1,7 @@
+---
+- name: Deploy dummy Fluent Bit HTTP receiver
+  hosts: fb_receiver
+  become: true
+  gather_facts: true
+  roles:
+    - role: fb_http_receiver

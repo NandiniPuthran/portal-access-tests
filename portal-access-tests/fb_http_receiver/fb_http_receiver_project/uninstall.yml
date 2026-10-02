@@ -1,0 +1,10 @@
+---
+# Full removal. Received logs are kept unless: -e fb_receiver_purge_logs=true
+- name: Remove dummy Fluent Bit HTTP receiver
+  hosts: fb_receiver
+  become: true
+  gather_facts: true
+  roles:
+    - role: fb_http_receiver
+      vars:
+        fb_receiver_state: absent

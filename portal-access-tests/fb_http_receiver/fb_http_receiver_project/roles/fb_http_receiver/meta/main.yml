@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: fb_http_receiver
+  author: infra
+  description: Temporary HTTP(S) sink that receives Fluent Bit http output and writes it to disk (test use only)
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions: [all]
+    - name: Ubuntu
+      versions: [all]
+dependencies: []

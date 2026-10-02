@@ -1,0 +1,35 @@
+---
+- name: Validate inputs and target
+  ansible.builtin.import_tasks: validate.yml
+  tags: [always]
+
+- name: Install receiver, user, directories and config
+  ansible.builtin.import_tasks: install.yml
+  when: fb_receiver_state == 'present'
+  tags: [fb_receiver, fb_receiver_install]
+
+- name: Configure (or remove) TLS material
+  ansible.builtin.import_tasks: tls.yml
+  when: fb_receiver_state == 'present'
+  tags: [fb_receiver, fb_receiver_tls]
+
+- name: Install and start the systemd service
+  ansible.builtin.import_tasks: service.yml
+  when: fb_receiver_state == 'present'
+  tags: [fb_receiver, fb_receiver_service]
+
+- name: Apply pending restarts before verification
+  ansible.builtin.meta: flush_handlers
+  tags: [always]
+
+- name: Verify the endpoint responds
+  ansible.builtin.import_tasks: verify.yml
+  when:
+    - fb_receiver_state == 'present'
+    - fb_receiver_verify | bool
+  tags: [fb_receiver, fb_receiver_verify]
+
+- name: Remove everything this role created
+  ansible.builtin.import_tasks: uninstall.yml
+  when: fb_receiver_state == 'absent'
+  tags: [fb_receiver, fb_receiver_uninstall]

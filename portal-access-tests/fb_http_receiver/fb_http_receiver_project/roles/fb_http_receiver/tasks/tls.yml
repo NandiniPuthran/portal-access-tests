@@ -1,0 +1,100 @@
+---
+- name: TLS | Deploy and check certificate material
+  when: fb_receiver_tls_enabled | bool
+  block:
+    - name: TLS | Directory
+      ansible.builtin.file:
+        path: "{{ fb_receiver_tls_dir }}"
+        state: directory
+        owner: root
+        group: "{{ fb_receiver_group }}"
+        mode: "0750"
+
+    - name: TLS | Server certificate
+      ansible.builtin.copy:
+        src: "{{ fb_receiver_tls_cert_src }}"
+        dest: "{{ fb_receiver_tls_dir }}/server.crt"
+        remote_src: "{{ fb_receiver_tls_remote_src | bool }}"
+        owner: root
+        group: "{{ fb_receiver_group }}"
+        mode: "0644"
+      notify: Restart fb-receiver
+
+    - name: TLS | Server private key
+      ansible.builtin.copy:
+        src: "{{ fb_receiver_tls_key_src }}"
+        dest: "{{ fb_receiver_tls_dir }}/server.key"
+        remote_src: "{{ fb_receiver_tls_remote_src | bool }}"
+        owner: root
+        group: "{{ fb_receiver_group }}"
+        mode: "0640"
+      no_log: true
+      notify: Restart fb-receiver
+
+    - name: TLS | Client CA for mTLS
+      ansible.builtin.copy:
+        src: "{{ fb_receiver_tls_client_ca_src }}"
+        dest: "{{ fb_receiver_tls_dir }}/client-ca.crt"
+        remote_src: "{{ fb_receiver_tls_remote_src | bool }}"
+        owner: root
+        group: "{{ fb_receiver_group }}"
+        mode: "0644"
+      when: fb_receiver_mtls | bool
+      notify: Restart fb-receiver
+
+    - name: TLS | Remove client CA when mTLS is off
+      ansible.builtin.file:
+        path: "{{ fb_receiver_tls_dir }}/client-ca.crt"
+        state: absent
+      when: not (fb_receiver_mtls | bool)
+      notify: Restart fb-receiver
+
+    - name: TLS | Read public key from certificate
+      ansible.builtin.command: openssl x509 -noout -pubkey -in {{ fb_receiver_tls_dir }}/server.crt
+      register: fb_receiver_cert_pubkey
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: TLS | Read public key from private key
+      ansible.builtin.command: openssl pkey -pubout -in {{ fb_receiver_tls_dir }}/server.key
+      register: fb_receiver_key_pubkey
+      changed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: TLS | Certificate and key must match
+      ansible.builtin.assert:
+        that: fb_receiver_cert_pubkey.stdout == fb_receiver_key_pubkey.stdout
+        fail_msg: "server.crt and server.key do not belong together — the service would fail to start."
+        quiet: true
+      when: not ansible_check_mode
+
+    - name: TLS | Check expiry (now, and 7 days ahead)
+      ansible.builtin.command: "openssl x509 -noout -checkend {{ item }} -in {{ fb_receiver_tls_dir }}/server.crt"
+      register: fb_receiver_cert_expiry
+      changed_when: false
+      failed_when: false
+      loop: [0, 604800]
+      when: not ansible_check_mode
+
+    - name: TLS | Fail on expired certificate
+      ansible.builtin.fail:
+        msg: "Server certificate is already expired."
+      when:
+        - not ansible_check_mode
+        - fb_receiver_cert_expiry.results[0].rc != 0
+
+    - name: TLS | Warn on certificate expiring soon
+      ansible.builtin.debug:
+        msg: "WARNING: server certificate expires within 7 days."
+      when:
+        - not ansible_check_mode
+        - fb_receiver_cert_expiry.results[0].rc == 0
+        - fb_receiver_cert_expiry.results[1].rc != 0
+
+- name: TLS | Remove TLS material when TLS is disabled
+  ansible.builtin.file:
+    path: "{{ fb_receiver_tls_dir }}"
+    state: absent
+  when: not (fb_receiver_tls_enabled | bool)
+  notify: Restart fb-receiver

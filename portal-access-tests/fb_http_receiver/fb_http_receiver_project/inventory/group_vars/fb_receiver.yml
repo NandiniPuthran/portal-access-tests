@@ -1,0 +1,22 @@
+---
+fb_receiver_port: 8888
+fb_receiver_uri_paths:
+  - /api/v1/logs
+
+# ---- Optional TLS: uncomment to enable ----
+# fb_receiver_port: 8443
+# fb_receiver_tls_enabled: true
+#
+# Option A: cert/key live on the Ansible controller
+# fb_receiver_tls_cert_src: files/certs/log-receiver.crt   # leaf + intermediates
+# fb_receiver_tls_key_src: files/certs/log-receiver.key    # vault-encrypt this
+#
+# Option B: cert/key already on the target (e.g. issued by certmonger)
+# fb_receiver_tls_remote_src: true
+# fb_receiver_tls_cert_src: /etc/pki/log-receiver/server.crt
+# fb_receiver_tls_key_src: /etc/pki/log-receiver/server.key
+#
+# Optional mTLS: receiver requires client certs signed by this CA
+# fb_receiver_tls_client_ca_src: files/certs/ca.crt
+# fb_receiver_verify_client_cert: /etc/pki/test-client/client.crt   # on target
+# fb_receiver_verify_client_key: /etc/pki/test-client/client.key    # on target

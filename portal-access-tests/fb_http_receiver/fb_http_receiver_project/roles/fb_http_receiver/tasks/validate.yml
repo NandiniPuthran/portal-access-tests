@@ -1,0 +1,59 @@
+---
+- name: Validate | Gather minimal facts if the play skipped them
+  ansible.builtin.setup:
+    gather_subset: [min]
+  when: ansible_facts['os_family'] is not defined
+
+- name: Validate | Target is Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == 'Debian'
+    fail_msg: "Only Debian/Ubuntu is supported (got {{ ansible_facts['os_family'] }})."
+    quiet: true
+
+- name: Validate | State, port and URI paths
+  ansible.builtin.assert:
+    that:
+      - fb_receiver_state in ['present', 'absent']
+      - fb_receiver_port | int >= 1
+      - fb_receiver_port | int <= 65535
+      - fb_receiver_uri_paths is iterable
+      - fb_receiver_uri_paths is not string
+      - fb_receiver_uri_paths | length > 0
+      - fb_receiver_uri_paths | select('match', '^/') | list | length == fb_receiver_uri_paths | length
+      - fb_receiver_uri_paths | select('search', '[,\s]') | list | length == 0
+    fail_msg: >-
+      Check fb_receiver_state (present|absent), fb_receiver_port (1-65535) and
+      fb_receiver_uri_paths (non-empty list, each starting with '/', no commas or spaces).
+    quiet: true
+
+- name: Validate | Managed paths are absolute and not system directories
+  ansible.builtin.assert:
+    that:
+      - item is match('^/.+')
+      - (item | regex_replace('/+$', '')) not in fb_receiver_protected_paths
+    fail_msg: "Refusing to manage '{{ item }}' — it must be a dedicated directory, not a system path."
+    quiet: true
+  loop:
+    - "{{ fb_receiver_install_dir }}"
+    - "{{ fb_receiver_conf_dir }}"
+    - "{{ fb_receiver_log_dir }}"
+
+- name: Validate | Will not create or delete a privileged account
+  ansible.builtin.assert:
+    that:
+      - fb_receiver_user not in ['root']
+      - fb_receiver_group not in ['root', 'adm', 'sudo', 'wheel']
+    fail_msg: "fb_receiver_manage_user=true would create/delete '{{ fb_receiver_user }}:{{ fb_receiver_group }}'. Use a dedicated account."
+    quiet: true
+  when: fb_receiver_manage_user | bool
+
+- name: Validate | TLS inputs are complete
+  ansible.builtin.assert:
+    that:
+      - fb_receiver_tls_cert_src | length > 0
+      - fb_receiver_tls_key_src | length > 0
+    fail_msg: "fb_receiver_tls_enabled=true requires fb_receiver_tls_cert_src and fb_receiver_tls_key_src."
+    quiet: true
+  when:
+    - fb_receiver_state == 'present'
+    - fb_receiver_tls_enabled | bool

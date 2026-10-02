@@ -1,0 +1,48 @@
+---
+- name: Verify | Port is listening
+  ansible.builtin.wait_for:
+    host: "{{ fb_receiver_verify_host }}"
+    port: "{{ fb_receiver_port | int }}"
+    timeout: 20
+
+- name: Verify | HTTP checks
+  when: not (fb_receiver_mtls | bool) or (fb_receiver_verify_client_cert | length > 0)
+  block:
+    # Proves the service answers (over TLS when enabled). Chain + SAN validation is
+    # what Fluent Bit's tls.verify does from the collector side — test that with curl.
+    - name: Verify | Health endpoint returns 200
+      ansible.builtin.uri:
+        url: "{{ fb_receiver_scheme }}://{{ fb_receiver_verify_host }}:{{ fb_receiver_port }}/healthz"
+        method: GET
+        status_code: 200
+        validate_certs: false
+        client_cert: "{{ fb_receiver_verify_client_cert | default(omit, true) }}"
+        client_key: "{{ fb_receiver_verify_client_key | default(omit, true) }}"
+      register: fb_receiver_health
+      retries: 3
+      delay: 2
+      until: fb_receiver_health.status == 200
+
+    - name: Verify | Unknown URI is rejected (proves path filtering, writes nothing)
+      ansible.builtin.uri:
+        url: "{{ fb_receiver_scheme }}://{{ fb_receiver_verify_host }}:{{ fb_receiver_port }}/__fb_receiver_verify_unknown__"
+        method: POST
+        body: "{}"
+        body_format: raw
+        status_code: 404
+        validate_certs: false
+        client_cert: "{{ fb_receiver_verify_client_cert | default(omit, true) }}"
+        client_key: "{{ fb_receiver_verify_client_key | default(omit, true) }}"
+
+- name: Verify | HTTP checks skipped
+  ansible.builtin.debug:
+    msg: >-
+      mTLS is on and no fb_receiver_verify_client_cert/key was given, so only the
+      port check ran. Test from a collector with curl --cert/--key.
+  when:
+    - fb_receiver_mtls | bool
+    - fb_receiver_verify_client_cert | length == 0
+
+- name: Verify | Endpoint(s) for Fluent Bit
+  ansible.builtin.debug:
+    msg: "{{ fb_receiver_uri_paths | map('regex_replace', '^', fb_receiver_scheme ~ '://' ~ (ansible_host | default(inventory_hostname)) ~ ':' ~ fb_receiver_port) | list }}"
